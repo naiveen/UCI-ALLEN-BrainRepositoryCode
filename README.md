@@ -1,1 +1,2 @@
-# UCI-ALLEN-BrainRepositoryCode
+# Code for UCI ALLEN Brain Repository
+
