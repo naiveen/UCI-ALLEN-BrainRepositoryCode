@@ -4,7 +4,9 @@
 ## To Convert the directory of tif sections into Zarr directory. 
 
 img_dir - Input directory containing tif file
+
 out_dir - Output directory to store Zarr chunks
+
 --channel - optional argument to select channel
 
 ```bash
