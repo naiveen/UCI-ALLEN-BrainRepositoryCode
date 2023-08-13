@@ -6,7 +6,9 @@ import os
 import nibabel as nib
 from collections import Counter
 import pandas as pd
-from cell_regions import *
+from cell_counting import *
+from cell_detection import *
+from reconstruction import *
 
 def get_input_cell_locations(input_mat):
     mat = scipy.io.loadmat(input_mat)
@@ -39,89 +41,129 @@ def get_registered_points(file):
     output_points= np.asarray(output_points)
     return output_points
 
-def get_registered_regions(output_points, ann_data, inp):
+def get_registered_regions(output_points, ann_data):
     region_ids =[]
+    points =[]
     exterior_points =0
     for i,point in enumerate(output_points):
         try:
-
             point = np.asarray(point).astype(int)
             if(np.sum(point<0)!=0):
                 continue
             if(point[1] >= ann_data.shape[1] or point[2] >= ann_data.shape[2] or point[0]>= ann_data.shape[0]):
                 exterior_points = exterior_points+1
                 continue
-            region_ids.append(int(ann_data[point[0], point[1], point[2]]))
+            if ann_data[point[0], point[1], point[2]] >=1:
+                region_ids.append(int(ann_data[point[0], point[1], point[2]]))
+                points.append(i)
         except Exception as e:
-            print(i, point, inp[i])
+            print(i, point)
     cell_counts = Counter(region_ids)
     print("Exterior Points :{}".format(exterior_points))
-    return cell_counts
+    return cell_counts, np.asarray(points)
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser() 
-    parser.add_argument('--fixed_image', type=str) #.\reference\average_template_25.nii
-    parser.add_argument('--moving_image', type=str) #output\brain25\result.1.nii
-    parser.add_argument('--input_mat', type=str, default = None) #'AI_result.mat'
-    parser.add_argument('--output_dir', type=str)
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--img_dir', type=str, default="", help = "Path to image directory containing stitiched sections")
+    parser.add_argument('--channel', type=int, default=0, help = "Channel to use for registration and cell counting")
+    parser.add_argument('--cell_detection', action='store_true', help ="Use this argument to do cell counting")
+    parser.add_argument('--threshold', type=int, default=10, help ="Threshold for cell counting")
+
+    parser.add_argument('--fixed_image', type=str, default = "") #.\reference\average_template_25.nii
+    parser.add_argument('--moving_image', type=str, default ="") #output\brain25\result.1.nii
+    parser.add_argument('--output_dir', type=str, default = "")
+    parser.add_argument('--input_mat', type=str, default = None)
+
+    parser.add_argument('--flag', action='store_true',  help ="dummy") 
 
     args = parser.parse_args()
-    if not os.path.isdir(args.output_dir):
-        os.mkdir(args.output_dir)
-    fixed_image = args.fixed_image
-    moving_image = args.moving_image
+
+    template_dir = "CCF_DATA/"
+
+    img_dir  = args.img_dir
     output_dir = args.output_dir
     input_mat = args.input_mat
+    channel = args.channel
+    threshold  = args.threshold
 
-    input_points_file = os.path.join(args.output_dir, "inputpoints.txt")
-    output_points_file = os.path.join(args.output_dir, "output_points.txt")
-    cell_count_file = os.path.join(args.output_dir, "cell_count.csv")
+    if img_dir == "":
+        moving_image = args.moving_image
+        fixed_image = args.fixed_image
+        assert moving_image!="", f"Either provide Image directory or moving_image file path"
+    else:
+        nii_dir  = os.path.join(img_dir, "nii")
+        moving_image = os.path.join(nii_dir,"brain_25.nii.gz")
+        fixed_image = os.path.join(template_dir, "average_template_25m.nii")
+
+    if args.output_dir=="":
+        output_dir = os.path.join(img_dir, "registration")
+
     
-    registration_cmd = ["./elastix/elastix","-m",fixed_image, "-f", moving_image, "-out", output_dir, "-p" , "001_parameters_Rigid.txt", "-p", "002_parameters_BSpline.txt"]
-    transformix_cmd  = [ "./elastix/transformix","-def",input_points_file,"-out", output_dir,"-tp",os.path.join(output_dir,"TransformParameters.1.txt")]
-    transformix_cmd2  = [ "./elastix/transformix","-in","CCF_DATA/annotation_25.nii","-out", output_dir,"-tp",os.path.join(output_dir,"TransformParameters.1.txt")]
 
+    if not os.path.isfile(moving_image):
+        print("Creating Nii Images.")
+        createNiiImages(img_dir, nii_dir, channel)
 
+    input_points_file = os.path.join(output_dir, "inputpoints.txt")
+    output_points_file = os.path.join(output_dir, "output_points.txt")
+    cell_count_file = os.path.join(output_dir, "cell_count.csv")
+    
+    registration_cmd = ["G:/Brain_Stitch/elastix/elastix","-m",fixed_image, "-f", moving_image, "-out", output_dir, "-p" , "001_parameters_Rigid.txt", "-p", "002_parameters_BSpline.txt"]
+    transformix_cmd  = ["G:/Brain_Stitch/elastix/transformix","-def",input_points_file,"-out", output_dir,"-tp",os.path.join(output_dir,"TransformParameters.1.txt")]
+    transformix_cmd2  = ["G:/Brain_Stitch/elastix/transformix","-in",r"./CCF_DATA/annotation_25m.nii","-out", output_dir,"-tp",os.path.join(output_dir,"TransformParameters.1.txt")]
 
 
     #Adjust Scale
     mImage = nib.load(moving_image)
     mData = mImage.get_fdata()
-    #subprocess.run(registration_cmd) 
 
-    if args.input_mat:
-        cell_locations =get_input_cell_locations(input_mat)
-        cell_locations = cell_locations[:, [2,1,0]]
-        cell_locations = np.round(cell_locations*[ 1, 1/20,1/20]).astype(int)
-        cell_locations[:,0] = mData.shape[0] - cell_locations[:,0]-1
-        cell_locations[:,1] = mData.shape[1] - cell_locations[:,1]-1
-        cell_locations[:,2] = mData.shape[2] - cell_locations[:,2]-1
+    if not os.path.isdir(output_dir):
+        os.mkdir(output_dir)
+        subprocess.run(registration_cmd) 
 
+    if args.cell_detection:
 
+        if not os.path.isfile(input_points_file):
+            if args.input_mat:
+                cell_locations =get_input_cell_locations(input_mat)
+                cell_locations = cell_locations[:, [2,1,0]]
+                
+                cell_locations[:,1] = mData.shape[1] - cell_locations[:,1]-1
+                cell_locations[:,2] = mData.shape[2] - cell_locations[:,2]-1
+            else:
+                imgfiles = natsorted(glob.glob(img_dir+"/**/*1_{}.tif".format(channel), recursive=True))
+                #print(img_files)
+                cells = Parallel(n_jobs=-4, verbose=13)(delayed(get_cell_locations)(img_file, index =i, intensity_threshold=threshold) for i, img_file in enumerate(imgfiles))
+                cell_locations = np.vstack(cells)
 
-        np.savetxt(input_points_file, cell_locations , "%d %d %d", header = "point\n"+str(cell_locations.shape[0]), comments ="")
+            #cell_locations[:,0] = mData.shape[0] - cell_locations[:,0]-1
+            scaled_cell_locations = np.round(cell_locations*[ 1, 1/20,1/20]).astype(int)
+            
+            np.savetxt(input_points_file, scaled_cell_locations , "%d %d %d", header = "index\n"+str(cell_locations.shape[0]), comments ="")
         
-        #subprocess.run(transformix_cmd)
+
+        scaled_cell_locations = np.loadtxt(input_points_file , skiprows=2)
+        
         subprocess.run(transformix_cmd2)
-
-
-        output_points = get_registered_points(os.path.join(output_dir,"outputpoints.txt"))
-        
-
-        np.savetxt(output_points_file, output_points , "%d %d %d", header = "point\n"+str(cell_locations.shape[0]), comments ="")
-
-        print(len(cell_locations))
-
-
         annotation_image  = nib.load(os.path.join(output_dir,"result.nii"))
         ann_data = annotation_image.get_fdata()
 
-        #cell_region_counts  = get_registered_regions(output_points, ann_data, cell_locations)
+        if args.flag:
+            subprocess.run(transformix_cmd)
+            cell_locations = get_registered_points(os.path.join(output_dir,"outputpoints.txt"))
+            np.savetxt(output_points_file, cell_locations , "%d %d %d", header = "index\n"+str(cell_locations.shape[0]), comments ="")
+            annotation_image  = nib.load("./CCF_DATA/annotation_25m.nii")
+            ann_data = annotation_image.get_fdata()
 
-        cell_region_counts  = get_registered_regions(cell_locations, ann_data, cell_locations)
+        print(len(cell_locations))
+
+        cell_region_counts, pointIndices = get_registered_regions(scaled_cell_locations, ann_data)
+        points = cell_locations[pointIndices]
+
+        createShardedPointAnnotation(points,img_dir )
         pd.DataFrame(dict(cell_region_counts).items(), columns=["region", "count"]).to_csv(cell_count_file, index=False)
 
-        atlas_df = pd.read_csv(r"G:/Brain_Stitch/CCF_DATA/1_adult_mouse_brain_graph_mapping.csv", index_col=None)
+        atlas_df = pd.read_csv(r"./CCF_DATA/1_adult_mouse_brain_graph_mapping.csv", index_col=None)
         count_df = pd.read_csv(cell_count_file, index_col=None)
 
 

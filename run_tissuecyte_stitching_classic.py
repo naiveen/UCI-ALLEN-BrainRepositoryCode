@@ -181,21 +181,6 @@ def load_average_tile(path):
     return normalize_image_by_median(tile)
 
 
-def get_average_tiles(average_tile_paths):
-
-    average_tiles = {} 
-    for key, path in iteritems(average_tile_paths):
-        key = int(key) - 1
-
-        try:
-            average_tiles[key] = load_average_tile(path)
-            logging.info('found average tile for channel {0} (zero-indexed)'.format(key))        
-        except(IOError, OSError, RuntimeError) as err:
-            average_tiles[key] = None
-            logging.info('did not find average tile for channel {0} (zero-indexed)'.format(key))
-        
-    return average_tiles
-
 def get_section_avg(tiles):
     imlist=[[],[],[],[]]
     avg_tiles =[]
@@ -205,7 +190,7 @@ def get_section_avg(tiles):
             #im = cv2.resize(im, (832,832))
             imlist[tile["channel"]-1].append(im)
         except(IOError, OSError, RuntimeError) as err:
-            logging.info('did not find image tile for channel {0} (zero-indexed)'.format(key))
+            logging.info('did not find image tile for channel {0} (zero-indexed)'.format(tile["channel"]-1))
     avg_tiles.append(np.mean(imlist[0],axis=0))
     avg_tiles.append(np.mean(imlist[1],axis=0))
     avg_tiles.append(np.mean(imlist[2],axis=0))
