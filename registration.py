@@ -62,6 +62,60 @@ def get_registered_regions(output_points, ann_data):
     print("Exterior Points :{}".format(exterior_points))
     return cell_counts, np.asarray(points)
 
+
+def parsePhysicalPointsFromOutputFile(transformixOutFile):
+    """
+    Parses Transformix Output file and stores the physical point location
+
+    Parameters
+    ----------
+    transformixOutFile  : Path to transformix output file
+    """
+    outputPoints=[]
+
+    with open(transformixOutFile, "r") as f:
+        for line in f:
+            line = line.split(";")
+            outputPoint  = [float(x) for x in line[4].split()[3:6]]
+            outputPoints.append(outputPoint)
+    outputPoints= np.asarray(outputPoints)
+    return outputPoints
+
+def convertPhysicalPointsToIndex(outputPoints, annDataImage):
+    outputIndices=[]
+    for point in outputPoints:
+        index = annDataImage.TransformPhysicalPointToIndex(point)
+        outputIndex.append(index)
+    return outputIndices
+
+def countCellsInRegions(outputIndices, annDataImage):
+    """
+    Parameters:
+    -----------
+    outputIndices : list of tuples, each tuple is a index location
+    annDataImage : sitkImage
+    """
+    region_ids =[]
+    points =[]
+    exterior_points =0
+    for i,point in enumerate(outputIndices):
+        try:
+            point = np.asarray(point).astype(int)
+            if(np.sum(point<0)!=0):
+                continue
+            sx, sy, sz = annDataImage.GetSize()
+            if(point[1] >= sy or point[2] >= sz or point[0]>= sx):
+                exterior_points = exterior_points+1
+                continue
+            if annDataImage.GetPixel(point)>=1:
+                region_ids.append(int(annDataImage.GetPixel(point)))
+                points.append(i)
+        except Exception as e:
+            print(i, point)
+    cell_counts = Counter(region_ids)
+    print("Exterior Points :{}".format(exterior_points))
+    return cell_counts, np.asarray(points)
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--img_dir', type=str, default="", help = "Path to image directory containing stitiched sections")
@@ -77,8 +131,10 @@ if __name__ == '__main__':
     parser.add_argument('--flag', action='store_true',  help ="dummy") 
 
     args = parser.parse_args()
-
+    elastix_dir = "../elastix-5.0.1-win64/"
     template_dir = "CCF_DATA/"
+    annotationImagePath = r"./CCF_DATA/annotation_25m.nii"
+    ATLAS_PATH = r"./CCF_DATA/1_adult_mouse_brain_graph_mapping.csv"
 
     img_dir  = args.img_dir
     output_dir = args.output_dir
@@ -108,9 +164,10 @@ if __name__ == '__main__':
     output_points_file = os.path.join(output_dir, "output_points.txt")
     cell_count_file = os.path.join(output_dir, "cell_count.csv")
     
-    registration_cmd = ["G:/Brain_Stitch/elastix/elastix","-m",fixed_image, "-f", moving_image, "-out", output_dir, "-p" , "001_parameters_Rigid.txt", "-p", "002_parameters_BSpline.txt"]
-    transformix_cmd  = ["G:/Brain_Stitch/elastix/transformix","-def",input_points_file,"-out", output_dir,"-tp",os.path.join(output_dir,"TransformParameters.1.txt")]
-    transformix_cmd2  = ["G:/Brain_Stitch/elastix/transformix","-in",r"./CCF_DATA/annotation_25m.nii","-out", output_dir,"-tp",os.path.join(output_dir,"TransformParameters.1.txt")]
+    
+    registration_cmd = [elastix_dir+"elastix","-m",fixed_image, "-f", moving_image, "-out", output_dir, "-p" , "001_parameters_Rigid.txt", "-p", "002_parameters_BSpline.txt"]
+    transformix_cmd  = [elastix_dir+"transformix","-def",input_points_file,"-out", output_dir,"-tp",os.path.join(output_dir,"TransformParameters.1.txt")]
+    transformix_cmd2  = [elastix_dir+"transformix","-in",annotationImagePath,"-out", output_dir,"-tp",os.path.join(output_dir,"TransformParameters.1.txt")]
 
 
     #Adjust Scale
@@ -136,38 +193,30 @@ if __name__ == '__main__':
                 cells = Parallel(n_jobs=-4, verbose=13)(delayed(get_cell_locations)(img_file, index =i, intensity_threshold=threshold) for i, img_file in enumerate(imgfiles))
                 cell_locations = np.vstack(cells)
 
-            #cell_locations[:,0] = mData.shape[0] - cell_locations[:,0]-1
-            scaled_cell_locations = np.round(cell_locations*[ 1, 1/20,1/20]).astype(int)
             
-            np.savetxt(input_points_file, scaled_cell_locations , "%d %d %d", header = "index\n"+str(cell_locations.shape[0]), comments ="")
+            points = cell_locations
+            createShardedPointAnnotation(points,img_dir )
+
+            scaledCellLocations = np.round(cell_locations*[ 1, 1/20,1/20]).astype(int)
+            np.savetxt(input_points_file, scaledCellLocations , "%d %d %d", header = "index\n"+str(cell_locations.shape[0]), comments ="")
         
 
-        scaled_cell_locations = np.loadtxt(input_points_file , skiprows=2)
-        
+        scaledCellLocations = np.loadtxt(input_points_file , skiprows=2)
         subprocess.run(transformix_cmd2)
-        annotation_image  = nib.load(os.path.join(output_dir,"result.nii"))
-        ann_data = annotation_image.get_fdata()
+        annotationImage  = sitk.ReadImage(os.path.join(output_dir,"result.nii"))
 
         if args.flag:
             subprocess.run(transformix_cmd)
-            cell_locations = get_registered_points(os.path.join(output_dir,"outputpoints.txt"))
+            scaledCellLocations = parsePhysicalPointsFromOutputFile(os.path.join(output_dir,"outputpoints.txt"))
             np.savetxt(output_points_file, cell_locations , "%d %d %d", header = "index\n"+str(cell_locations.shape[0]), comments ="")
-            annotation_image  = nib.load("./CCF_DATA/annotation_25m.nii")
-            ann_data = annotation_image.get_fdata()
-
-        print(len(cell_locations))
-
-        cell_region_counts, pointIndices = get_registered_regions(scaled_cell_locations, ann_data)
-        points = cell_locations[pointIndices]
-
-        createShardedPointAnnotation(points,img_dir )
-        pd.DataFrame(dict(cell_region_counts).items(), columns=["region", "count"]).to_csv(cell_count_file, index=False)
-
-        atlas_df = pd.read_csv(r"./CCF_DATA/1_adult_mouse_brain_graph_mapping.csv", index_col=None)
+            annotationImage  = sitk.ReadImage(annotationImagePath)
+            outputIndices = convertPhysicalPointsToIndex(scaledCellLocations , annotationImage)
+        
+        
+        cellRegionCounts, pointIndices = countCellsInRegions( outputIndices, annotationImage)
+        pd.DataFrame(dict(cellRegionCounts).items(), columns=["region", "count"]).to_csv(cell_count_file, index=False)
+        atlas_df = pd.read_csv(ATLAS_PATH, index_col=None)
         count_df = pd.read_csv(cell_count_file, index_col=None)
-
-
         region_df,count_df = process_counts(atlas_df, count_df)
         count_df.to_csv(os.path.join(output_dir,"cell_region_count.csv"), index=False)
         region_df.to_csv(os.path.join(output_dir,"region_counts.csv"), index=False)
-
