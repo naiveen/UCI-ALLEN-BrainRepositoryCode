@@ -6,6 +6,9 @@ import os
 import nibabel as nib
 from collections import Counter
 import pandas as pd
+from tempfile import mkstemp
+from shutil import move, copymode
+from os import fdopen, remove
 from cell_counting import *
 from cell_detection import *
 from reconstruction import *
@@ -30,38 +33,22 @@ def get_input_cell_locations(input_mat):
     return cell_locations
 
 
-
-def get_registered_points(file):
-    output_points=[]
-    with open(file, "r") as f:
-        for line in f:
-            line = line.split(";")
-            output_point  = [float(x) for x in line[4].split()[3:6]]
-            output_points.append(output_point)
-    output_points= np.asarray(output_points)
-    return output_points
-
-def get_registered_regions(output_points, ann_data):
-    region_ids =[]
-    points =[]
-    exterior_points =0
-    for i,point in enumerate(output_points):
-        try:
-            point = np.asarray(point).astype(int)
-            if(np.sum(point<0)!=0):
-                continue
-            if(point[1] >= ann_data.shape[1] or point[2] >= ann_data.shape[2] or point[0]>= ann_data.shape[0]):
-                exterior_points = exterior_points+1
-                continue
-            if ann_data[point[0], point[1], point[2]] >=1:
-                region_ids.append(int(ann_data[point[0], point[1], point[2]]))
-                points.append(i)
-        except Exception as e:
-            print(i, point)
-    cell_counts = Counter(region_ids)
-    print("Exterior Points :{}".format(exterior_points))
-    return cell_counts, np.asarray(points)
-
+def replaceBSplineOrder(file_path):
+    #Create temp file
+    fh, abs_path = mkstemp()
+    with fdopen(fh,'w') as new_file:
+        with open(file_path) as old_file:
+            for line in old_file:
+                if "FinalBSplineInterpolationOrder" in line:
+                    new_file.write("(FinalBSplineInterpolationOrder 0)")
+                else:
+                    new_file.write(line)
+    #Copy the file permissions from the old file to the new file
+    copymode(file_path, abs_path)
+    #Remove original file
+    remove(file_path)
+    #Move new file
+    move(abs_path, file_path)
 
 def parsePhysicalPointsFromOutputFile(transformixOutFile):
     """
@@ -154,8 +141,6 @@ if __name__ == '__main__':
     if args.output_dir=="":
         output_dir = os.path.join(img_dir, "registration")
 
-    
-
     if not os.path.isfile(moving_image):
         print("Creating Nii Images.")
         createNiiImages(img_dir, nii_dir, channel)
@@ -202,6 +187,7 @@ if __name__ == '__main__':
         
 
         scaledCellLocations = np.loadtxt(input_points_file , skiprows=2)
+        replaceBSplineOrder(os.path.join(output_dir,"TransformParameters.1.txt"))
         subprocess.run(transformix_cmd2)
         annotationImage  = sitk.ReadImage(os.path.join(output_dir,"result.nii"))
 
@@ -212,7 +198,7 @@ if __name__ == '__main__':
             annotationImage  = sitk.ReadImage(annotationImagePath)
             outputIndices = convertPhysicalPointsToIndex(scaledCellLocations , annotationImage)
         
-        
+
         cellRegionCounts, pointIndices = countCellsInRegions( outputIndices, annotationImage)
         pd.DataFrame(dict(cellRegionCounts).items(), columns=["region", "count"]).to_csv(cell_count_file, index=False)
         atlas_df = pd.read_csv(ATLAS_PATH, index_col=None)
