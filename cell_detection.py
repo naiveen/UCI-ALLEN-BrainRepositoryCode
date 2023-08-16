@@ -184,6 +184,7 @@ def main():
 
     imgfiles = natsorted(glob.glob(os.path.join(img_dir,"**/*1_{}.tif".format(channel)), recursive=True))
     print(img_dir/'**/*1_{}.tif'.format(channel))
+    print(section)
     if section==-1:
         cells = Parallel(n_jobs=-4, verbose=13)(delayed(get_cell_locations)(img_file, intensity_threshold=threshold, index =i) for i, img_file in enumerate(imgfiles))
         points = np.vstack(cells)
@@ -192,7 +193,7 @@ def main():
 
     else:
         imgfile  = imgfiles[section]
-        image = read_image(imgfile)
+        image = readSectionTif(imgfile)
         print("Detecting Cells")
         cells = get_cell_locations(image, intensity_threshold=threshold)
         viewer = ng_SingleSectionLocalViewer(image, cells)
