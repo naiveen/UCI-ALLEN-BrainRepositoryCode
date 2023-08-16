@@ -40,7 +40,7 @@ def replaceBSplineOrder(file_path):
         with open(file_path) as old_file:
             for line in old_file:
                 if "FinalBSplineInterpolationOrder" in line:
-                    new_file.write("(FinalBSplineInterpolationOrder 0)")
+                    new_file.write("(FinalBSplineInterpolationOrder 0)\n")
                 else:
                     new_file.write(line)
     #Copy the file permissions from the old file to the new file
@@ -72,7 +72,7 @@ def convertPhysicalPointsToIndex(outputPoints, annDataImage):
     outputIndices=[]
     for point in outputPoints:
         index = annDataImage.TransformPhysicalPointToIndex(point)
-        outputIndex.append(index)
+        outputIndices.append(index)
     return outputIndices
 
 def countCellsInRegions(outputIndices, annDataImage):
@@ -87,17 +87,21 @@ def countCellsInRegions(outputIndices, annDataImage):
     exterior_points =0
     for i,point in enumerate(outputIndices):
         try:
-            point = np.asarray(point).astype(int)
+            point = np.asarray(point).astype(np.uint16)
             if(np.sum(point<0)!=0):
                 continue
+
             sx, sy, sz = annDataImage.GetSize()
+
             if(point[1] >= sy or point[2] >= sz or point[0]>= sx):
                 exterior_points = exterior_points+1
                 continue
-            if annDataImage.GetPixel(point)>=1:
-                region_ids.append(int(annDataImage.GetPixel(point)))
+
+            if annDataImage.GetPixel(int(point[0]), int(point[1]), int(point[2]))>=1:
+                region_ids.append(int(annDataImage.GetPixel(int(point[0]), int(point[1]), int(point[2]))))
                 points.append(i)
         except Exception as e:
+            print(e)
             print(i, point)
     cell_counts = Counter(region_ids)
     print("Exterior Points :{}".format(exterior_points))
@@ -118,7 +122,7 @@ if __name__ == '__main__':
     parser.add_argument('--flag', action='store_true',  help ="dummy") 
 
     args = parser.parse_args()
-    elastix_dir = "../elastix-5.0.1-win64/"
+    elastix_dir = "../elastix/"
     template_dir = "CCF_DATA/"
     annotationImagePath = r"./CCF_DATA/annotation_25m.nii"
     ATLAS_PATH = r"./CCF_DATA/1_adult_mouse_brain_graph_mapping.csv"
@@ -177,6 +181,7 @@ if __name__ == '__main__':
                 #print(img_files)
                 cells = Parallel(n_jobs=-4, verbose=13)(delayed(get_cell_locations)(img_file, index =i, intensity_threshold=threshold) for i, img_file in enumerate(imgfiles))
                 cell_locations = np.vstack(cells)
+                cell_locations[:,0] = mData.shape[0] - cell_locations[:,0]-1
 
             
             points = cell_locations
@@ -186,18 +191,17 @@ if __name__ == '__main__':
             np.savetxt(input_points_file, scaledCellLocations , "%d %d %d", header = "index\n"+str(cell_locations.shape[0]), comments ="")
         
 
-        scaledCellLocations = np.loadtxt(input_points_file , skiprows=2)
-        replaceBSplineOrder(os.path.join(output_dir,"TransformParameters.1.txt"))
-        subprocess.run(transformix_cmd2)
-        annotationImage  = sitk.ReadImage(os.path.join(output_dir,"result.nii"))
+        subprocess.run(transformix_cmd)
+        scaledCellLocations = parsePhysicalPointsFromOutputFile(os.path.join(output_dir,"outputpoints.txt"))
+        #np.savetxt(output_points_file, scaledCellLocations , "%d %d %d", header = "index\n"+str(scaledCellLocations.shape[0]), comments ="")
+        annotationImage  = sitk.ReadImage(annotationImagePath)
+        outputIndices = convertPhysicalPointsToIndex(scaledCellLocations , annotationImage)
 
         if args.flag:
-            subprocess.run(transformix_cmd)
-            scaledCellLocations = parsePhysicalPointsFromOutputFile(os.path.join(output_dir,"outputpoints.txt"))
-            np.savetxt(output_points_file, cell_locations , "%d %d %d", header = "index\n"+str(cell_locations.shape[0]), comments ="")
-            annotationImage  = sitk.ReadImage(annotationImagePath)
-            outputIndices = convertPhysicalPointsToIndex(scaledCellLocations , annotationImage)
-        
+            outputIndices = np.loadtxt(input_points_file , skiprows=2)
+            replaceBSplineOrder(os.path.join(output_dir,"TransformParameters.1.txt"))
+            subprocess.run(transformix_cmd2)
+            annotationImage  = sitk.ReadImage(os.path.join(output_dir,"result.nii"))
 
         cellRegionCounts, pointIndices = countCellsInRegions( outputIndices, annotationImage)
         pd.DataFrame(dict(cellRegionCounts).items(), columns=["region", "count"]).to_csv(cell_count_file, index=False)
