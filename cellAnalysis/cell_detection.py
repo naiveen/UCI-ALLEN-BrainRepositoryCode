@@ -33,7 +33,7 @@ import SimpleITK as sitk
 
 from joblib import Parallel, delayed
 
-import StructureElement as se
+import cellAnalysis.StructureElement as se
 from ng_utils import *
 def arg_parser():
     parser = argparse.ArgumentParser(description='Cell Counting Argments')

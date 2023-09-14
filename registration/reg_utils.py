@@ -176,7 +176,7 @@ def elastixRegistration(fixedImagePath, movingImagePath, outputDir, rescale=True
         mdata = loadNiiImages([movingImagePath])
         rescaledData = rescaleMaxTo255(mdata)
         rescaledDataPath = os.path.join(outputDir, "rescaled.nii.gz")
-        create_nifti_image(rescaledData,25,rescaledDataPath,1)
+        create_nifti_image(rescaledData,2.5,rescaledDataPath,1)
         movingImagePath = rescaledDataPath
 
     registration_cmd = [ELASTIXDIR+"elastix","-f",fixedImagePath, "-m", movingImagePath, "-out", outputDir, "-p" , "001_parameters_Rigid.txt", "-p", "002_parameters_BSpline.txt"]
