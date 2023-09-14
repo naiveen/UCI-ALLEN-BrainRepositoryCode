@@ -1,6 +1,6 @@
 import numpy as np
 import matplotlib.pyplot as plt
-from reg_utils import *
+from registration.reg_utils import *
 import plotly.express as px
 import plotly.graph_objects as go
 

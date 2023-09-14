@@ -23,9 +23,10 @@ from scipy.ndimage import affine_transform
 
 from scipy.sparse import csr_matrix, linalg as sla
 
-from registration import *
-from plot_utils import *
-from edge_utils import *
+from registration.plot_utils import *
+from registration.edge_utils import *
+from registration.reg_utils import *
+from registration.laplacianUtils import *
 
 import open3d
 import os
@@ -35,8 +36,7 @@ import gc
 import scipy
 import pyamg
 
-from reg_utils import *
-from laplacianUtils import *
+
 
 
 def affineRegistration(fixedImagePath, movingImagePath, spacing, fthresh, mthresh, tol=1e-2):
@@ -84,9 +84,6 @@ def reg3D(fixedImage, movingImage, spacing, fthresh, mthresh, tol=1e-2):
 
     
     fdata, mdata = loadNiiImages([fixedImage, movingImage] , scale =True)
-
-    
-    
     
     nx, ny, nz  = fdata.shape
     nd  = len(fdata.shape)

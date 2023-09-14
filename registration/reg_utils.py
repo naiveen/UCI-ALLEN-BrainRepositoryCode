@@ -25,11 +25,12 @@ import nibabel as nib
 import SimpleITK as sitk
 import open3d as o3d
 import open3d
-from edgeUtils import *
-from laplacianUtils import *
+from registration.edge_utils import *
+from registration.laplacianUtils import *
+from registration.vol2affine import vol2affine
+from registration.align_utils import align_rotation
 
-ELASTIXDIR = "/elastix/"
-
+ELASTIXDIR = "./elastix/"
 
 def loadNiiImages(imageList, scale = False):
     """
@@ -62,6 +63,7 @@ def loadNiiImages(imageList, scale = False):
     return images
 
 
+
 def getMutualInformation(fdata, mdata):
     """
     Wrapper function to calculate Mutual information between two numpy arrays usint SITK mutual information
@@ -89,7 +91,60 @@ def getMutualInformation(fdata, mdata):
     registration_method.SetMetricAsMattesMutualInformation()
     return registration_method.MetricEvaluate(fImage, mImage)
 
-def elastixRegistration(fixedImagePath, movingImagePath, outputDir):
+
+
+def getAlignAxisAffineMatrix(fixed, moving):
+    
+    
+    R, r1, r2 = vol2affine(moving=moving, template=fixed,pivot=(0, 0, 0))
+    #R = align_rotation(r1,r2)
+    origin = np.array(moving.shape)/2
+
+    A1 = np.eye(4)
+    A1[0:3, 3] = -origin
+
+    A2 = np.eye(4)
+    A2[0:3,0:3] = R[0:3,0:3]
+
+    A3 = np.eye(4)
+    A3[0:3, 3] = origin
+    A = (A3@A2)@A1
+    return A
+
+def axisAlignData(fixedImage, movingImage):
+
+    fdata, mdata = loadNiiImages([fixedImage, movingImage])
+
+    A = getAlignAxisAffineMatrix(fdata, mdata)
+    alignedData = affine_transform(mdata,np.linalg.inv(A), output_shape = mdata.shape, order =1)
+    alignedData[alignedData<0] =0
+    return A, alignedData
+
+
+def create_nifti_image(img_array, scale, name=None, sz= None):
+    """
+    img_array : numpy array, containing stack of images
+    scale: nifti scale
+    """
+    affine_transform = np.zeros((4,4))
+
+    affine_transform[0,2] = 0.01 * scale
+    affine_transform[2,1] = -0.01* scale
+    if sz==None:
+        affine_transform[1,0] = -0.05
+    else:
+        affine_transform[1,0] = -0.05 *sz
+    affine_transform[3,3] = 1
+    nibImg = nib.Nifti1Image(img_array,affine_transform)
+
+    nibImg.header['qform_code'] =1
+    if name != None:
+        if name[-1]!='z':
+            name  = os.path.join(name, 'brain_{}.nii.gz'.format(int(scale*10))) 
+        nibImg.to_filename( name)
+    return nibImg
+
+def elastixRegistration(fixedImagePath, movingImagePath, outputDir, rescale=True):
     """
     Wrapper to run elastix registration from command line. Requires ELASTIXDIR to be defined as a global variable and expects the
     parameter file to present in current directory. 
@@ -104,9 +159,27 @@ def elastixRegistration(fixedImagePath, movingImagePath, outputDir):
     ------------
     path to deformed moving Image output
     """
-    registration_cmd = [ELASTIXDIR+"elastix","-f",fixedImagePath, "-m", movingImagePath, "-out", outputDir, "-p" , "001_parameters_Rigid.txt", "-p", "002_parameters_BSpline.txt"]
+    def rescaleMaxTo255(data):
+        """
+        Thresholds  and converts data to UINT8
+        """
+        maxVal  = np.percentile(data, 99)
+        data[data > maxVal ] = maxVal
+        data = data*255 /maxVal
+        return data
+
+
     if not os.path.isdir(outputDir):
         os.mkdir(outputDir)
+
+    if rescale:
+        mdata = loadNiiImages([movingImagePath])
+        rescaledData = rescaleMaxTo255(mdata)
+        rescaledDataPath = os.path.join(outputDir, "rescaled.nii.gz")
+        create_nifti_image(rescaledData,25,rescaledDataPath,1)
+        movingImagePath = rescaledDataPath
+
+    registration_cmd = [ELASTIXDIR+"elastix","-f",fixedImagePath, "-m", movingImagePath, "-out", outputDir, "-p" , "001_parameters_Rigid.txt", "-p", "002_parameters_BSpline.txt"]
     subprocess.run(registration_cmd)
     return os.path.join(outputDir, "result.1.nii")
 
@@ -601,7 +674,7 @@ def estimate2Dnormals(points,binarySection=None , radius = 3,pkdtree = None,  pr
         points, normals = orient2Dnormals(points, normals, binarySection)
     return points, normals
 
-def process3DImage( image3D , thresh =0 , **kwargs):
+def process3DImage( image3D , thresh =1 , **kwargs):
     """
     kwargs[mkernel] =5
     kwargs[gkernel] =5 
@@ -1023,7 +1096,8 @@ class RegistrationData(object):
         self.fkdtree =  o3d.geometry.KDTreeFlann(self.fpcd)
         
     def applyAffineTransform(self,A):
-        self.mdata = affine_transform(self.mdata,np.linalg.inv(A), output_shape = self.fdata.shape)
+        modifiedData = affine_transform(self.mdata,np.linalg.inv(A), output_shape = self.fdata.shape)
+        self.mdata =modifiedData
         self.processMovingImage()
         mpoints  = self.createPointCloud(self.msurface)
         self.set_mpoints(mpoints)
@@ -1077,4 +1151,3 @@ class RegistrationData(object):
     
     def get_fnormals(self):
         return self.fnormals
-
