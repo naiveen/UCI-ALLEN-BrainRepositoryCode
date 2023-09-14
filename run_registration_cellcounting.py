@@ -115,7 +115,7 @@ def registration(fixedImagePath, movingImagePath, outputDir):
     print("Aligning Axes")
     A, axisAlignedData = rg.axisAlignData(fixedImagePath, movingImagePath)
     axisAlignedDataPath  = os.path.join(outputDir , "axisAlignedData.nii.gz")
-    create_nifti_image(axisAlignedData, 25, axisAlignedDataPath, 1)
+    create_nifti_image(axisAlignedData, 2.5, axisAlignedDataPath, 1)
     movingImagePath = axisAlignedDataPath
 
     print("Elastix Registration")
