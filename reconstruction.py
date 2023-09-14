@@ -75,7 +75,8 @@ def create_nifti_image(img_array, scale, name=None, sz= None):
 
     nibImg.header['qform_code'] =1
     if name != None:
-        name  = os.path.join(output_dir, 'brain_{}.nii.gz'.format(int(scale*10))) 
+        if name[-1]!='z':
+            name  = os.path.join(name, 'brain_{}.nii.gz'.format(int(scale*10))) 
         nibImg.to_filename( name)
     return nibImg
 
