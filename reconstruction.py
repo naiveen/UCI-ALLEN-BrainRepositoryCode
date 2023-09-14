@@ -57,8 +57,7 @@ def get_stacked_data(img_array):
     img_data = np.flip(img_data,axis=0)
     return img_data
 
-
-def create_nifti_image(img_array, scale, output_dir):
+def create_nifti_image(img_array, scale, name=None, sz= None):
     """
     img_array : numpy array, containing stack of images
     scale: nifti scale
@@ -67,12 +66,19 @@ def create_nifti_image(img_array, scale, output_dir):
 
     affine_transform[0,2] = 0.01 * scale
     affine_transform[2,1] = -0.01* scale
-    affine_transform[1,0] = -0.05
+    if sz==None:
+        affine_transform[1,0] = -0.05
+    else:
+        affine_transform[1,0] = -0.05 *sz
     affine_transform[3,3] = 1
     nibImg = nib.Nifti1Image(img_array,affine_transform)
 
     nibImg.header['qform_code'] =1
-    nibImg.to_filename(os.path.join(output_dir, 'brain_{}.nii.gz'.format(int(scale*10))))
+    if name != None:
+        name  = os.path.join(output_dir, 'brain_{}.nii.gz'.format(int(scale*10))) 
+        nibImg.to_filename( name)
+    return nibImg
+
 
 def createNiiImages(img_dir, out_dir , channel=0):
     """
