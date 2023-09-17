@@ -38,7 +38,14 @@ python .\run_registration_cellcounting.py --img_dir  IMGDIR --channel 0 --cell_d
 
 ```
 
+## To Generate nii files from a stack of section images
 
+img_dir - Input directory containing section images
+
+out_dir - Output directory to store nii files
+```
+python tif_to_ome.py [img_dir] [out_dir] --channel 0
+```
 
 ## To Convert the directory of tif sections into Zarr directory. 
 
