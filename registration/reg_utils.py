@@ -183,15 +183,19 @@ def elastixRegistration(fixedImagePath, movingImagePath, outputDir, rescale=True
     subprocess.run(registration_cmd)
     return os.path.join(outputDir, "result.1.nii")
 
-def elastixTransformation(imagePath, regDir, outPath= None):
+def elastixTransformation(imagePath, regDir, outDir=None):
     """
     Wrapper to run elastix transform command line to apply transformation to the given image path based on elastix registration. 
     If outPath is not given, it is stored in regDir/transform.nii
     Parameters:
     """
-    if outPath is None:
-        outPath = os.path.join(regDir, "result.nii")
-    transformix_cmd = [ELASTIXDIR+"transformix","-in",imagePath,"-out", regDir,"-tp",os.path.join(regDir,"TransformParameters.1.txt")]
+    if not os.path.isdir(outDir):
+        os.mkdir(outDir)
+
+    if outDir is None:
+        outDir = regDir
+    outPath = os.path.join(outDir, "result.nii")
+    transformix_cmd = [ELASTIXDIR+"transformix","-in",imagePath,"-out", outDir,"-tp",os.path.join(regDir,"TransformParameters.1.txt")]
     subprocess.run(transformix_cmd)
     return outPath
 
