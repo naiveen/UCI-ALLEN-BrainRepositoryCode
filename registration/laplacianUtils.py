@@ -1,3 +1,14 @@
+"""
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+Atchuth Naveen
+Code developed at UC Irvine.
+
+
+Contains functions to create lapalcian matrices for 1D 2D , 3D space according to dirichlet boundary conditions. 
+"""
+
+
 import numpy as np
 import scipy
 import gc

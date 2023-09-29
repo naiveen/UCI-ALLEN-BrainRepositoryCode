@@ -1,6 +1,10 @@
 """
-Code developed at UC Irvine 
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+Atchuth Naveen
+Code developed at UC Irvine.
 
+Corrects deformation in individual images and stitches them into a large mosaic section. 
 """
 
 

@@ -1,6 +1,8 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """
+Atchuth Naveen
+Code developed at UC Irvine.
 3D volume reconstruction utilities
 """
 
@@ -62,8 +64,10 @@ def create_nifti_image(img_array, scale, name=None, sz= None):
     img_array : numpy array, containing stack of images
     scale: nifti scale
     """
-    affine_transform = np.zeros((4,4))
 
+
+    # The following parameters are set to be consistent with ALLEN CCF NII Templates
+    affine_transform = np.zeros((4,4))
     affine_transform[0,2] = 0.01 * scale
     affine_transform[2,1] = -0.01* scale
     if sz==None:
@@ -72,8 +76,12 @@ def create_nifti_image(img_array, scale, name=None, sz= None):
         affine_transform[1,0] = -0.05 *sz
     affine_transform[3,3] = 1
     nibImg = nib.Nifti1Image(img_array,affine_transform)
+    nibImg.header['qform_code'] = 1
+    nibImg.header['qoffset_x'] = -5.695
+    nibImg.header['qoffset_y'] = 5.35
+    nibImg.header['qoffset_z'] = 5.22
 
-    nibImg.header['qform_code'] =1
+
     if name != None:
         if name[-1]!='z':
             name  = os.path.join(name, 'brain_{}.nii.gz'.format(int(scale*10))) 

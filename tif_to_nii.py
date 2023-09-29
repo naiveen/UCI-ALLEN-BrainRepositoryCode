@@ -1,7 +1,8 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """
-tif_to_nii
+Atchuth Naveen
+Code developed at UC Irvine.
 
 command line executable to convert a directory of tif images
 to a nifti image stacked along a user-specified axis
@@ -26,7 +27,7 @@ from tqdm import tqdm
 from skimage.transform import resize
 from natsort import natsorted
 from joblib import Parallel, delayed
-from reconstruction import *
+from registration.reconstruction import *
 
 def arg_parser():
     parser = argparse.ArgumentParser(description='merge 2d tif images into a 3d image')

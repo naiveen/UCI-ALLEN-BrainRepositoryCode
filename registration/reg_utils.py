@@ -1,3 +1,11 @@
+"""
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+Atchuth Naveen
+Code developed at UC Irvine.
+
+Implemented various functions that serve as building blocks in the registration pipeline
+"""
 import os
 import subprocess
 import gc
@@ -29,6 +37,7 @@ from registration.edge_utils import *
 from registration.laplacianUtils import *
 from registration.vol2affine import vol2affine
 from registration.align_utils import align_rotation
+from registration.reconstruction import create_nifti_image
 
 ELASTIXDIR = "./elastix/"
 
@@ -39,7 +48,7 @@ def loadNiiImages(imageList, scale = False):
     If numpy data is present in imageList, the same will be returned 
     """
     if scale:
-        if type(imageList[0])!=str:
+        if type(imageList[0])==str:
             fImage = nib.load(imageList[0])
         else:
             scale = False
@@ -49,9 +58,11 @@ def loadNiiImages(imageList, scale = False):
         if type(image) == str:
             niiImage = nib.load(image)
             imdata = niiImage.get_fdata()
+
             # Execution is faster on copied data
             if scale:
                 scales = tuple(np.array(niiImage.header.get_zooms()) / np.array(fImage.header.get_zooms()))
+
                 imdata =  scipy.ndimage.zoom(imdata.copy(), scales, order=1)
             images.append(imdata.copy())
 
@@ -120,6 +131,7 @@ def axisAlignData(fixedImage, movingImage):
     alignedData[alignedData<0] =0
     return A, alignedData
 
+"""
 
 def create_nifti_image(img_array, scale, name=None, sz= None):
     """
@@ -143,8 +155,9 @@ def create_nifti_image(img_array, scale, name=None, sz= None):
             name  = os.path.join(name, 'brain_{}.nii.gz'.format(int(scale*10))) 
         nibImg.to_filename( name)
     return nibImg
+"""
 
-def elastixRegistration(fixedImagePath, movingImagePath, outputDir, rescale=True):
+def elastixRegistration(fixedImagePath, movingImagePath, outputDir, rescale=True, elastixDir=None):
     """
     Wrapper to run elastix registration from command line. Requires ELASTIXDIR to be defined as a global variable and expects the
     parameter file to present in current directory. 
@@ -179,23 +192,32 @@ def elastixRegistration(fixedImagePath, movingImagePath, outputDir, rescale=True
         create_nifti_image(rescaledData,2.5,rescaledDataPath,1)
         movingImagePath = rescaledDataPath
 
-    registration_cmd = [ELASTIXDIR+"elastix","-f",fixedImagePath, "-m", movingImagePath, "-out", outputDir, "-p" , "001_parameters_Rigid.txt", "-p", "002_parameters_BSpline.txt"]
+    if elastixDir is None:
+        elastixDir=ELASTIXDIR
+
+    registration_cmd = [elastixDir+"elastix","-f",fixedImagePath, "-m", movingImagePath, "-out", outputDir, "-p" , "001_parameters_Rigid.txt", "-p", "002_parameters_BSpline.txt"]
     subprocess.run(registration_cmd)
     return os.path.join(outputDir, "result.1.nii")
 
-def elastixTransformation(imagePath, regDir, outDir=None):
+def elastixTransformation(imagePath, regDir, outDir=None, elastixDir=None):
     """
     Wrapper to run elastix transform command line to apply transformation to the given image path based on elastix registration. 
     If outPath is not given, it is stored in regDir/transform.nii
     Parameters:
     """
-    if not os.path.isdir(outDir):
-        os.mkdir(outDir)
+    
 
     if outDir is None:
         outDir = regDir
+
+    if not os.path.isdir(outDir):
+        os.mkdir(outDir)
+        
     outPath = os.path.join(outDir, "result.nii")
-    transformix_cmd = [ELASTIXDIR+"transformix","-in",imagePath,"-out", outDir,"-tp",os.path.join(regDir,"TransformParameters.1.txt")]
+
+    if elastixDir is None:
+        elastixDir=ELASTIXDIR
+    transformix_cmd = [elastixDir+"transformix","-in",imagePath,"-out", outDir,"-tp",os.path.join(regDir,"TransformParameters.1.txt")]
     subprocess.run(transformix_cmd)
     return outPath
 
@@ -635,13 +657,9 @@ def orient2Dnormals(points, normals, section):
 
     return points, normals
 
-def orient_normals(points, normals):
-    """
-    Orients Normals to point away from center
-    
-    TODO: Make them point towards low intensity
-    """
-    
+def orient_normals_basic(points, normals):
+    #Orients Normals to point away from center
+     
     center = np.mean(points, axis=0)
     
     for i,point in enumerate(points):
@@ -649,6 +667,61 @@ def orient_normals(points, normals):
         if(np.inner(pp,normals[i] )< 0):
             normals[i] = -normals[i]
     return points, normals
+
+def orient_normals(points, normals, binary, k=9):
+    """
+    Orients Normals to make them point towards low intensity.
+    For Each point, the sum of pixels in both directions of the normal vector are accumulated. 
+    And the normal is made to point towards the sum containing low intensity.
+
+
+    Parameters
+    ----------
+    points: Nx3 np array
+    normals: Nx3 np array
+    binary: 3D np array
+    k: Number of pixels to consider on both sides. Default value is 9
+
+    Returns:
+    points: N_x3 np array. Some of the noisy points are filtered out
+    normals: N_3 np array. Corresponding normal vectors with their sign flipped. 
+    """
+
+    binary_ = binary.flatten()
+    sx, sy, sz = binary.shape
+
+    #Filter Out points at the boundaries of the volume
+    pFlatIndexMax = np.array(points[:,0]+k*normals[:,0]).astype(int)*sy*sz+np.array(points[:,1]+k*normals[:,1]).astype(int)*sz + np.array(points[:,1]+k*normals[:,2]).astype(int)
+    points = points[np.where(pFlatIndexMax< len(binary_))[0]]
+    normals = normals[np.where(pFlatIndexMax< len(binary_))[0]]
+
+    pFlatIndexMax = np.array(points[:,0]+k*normals[:,0]).astype(int)*sy*sz+np.array(points[:,1]+k*normals[:,1]).astype(int)*sz + np.array(points[:,1]+k*normals[:,2]).astype(int)
+    points = points[np.where(pFlatIndexMax> 0)[0]]
+    normals = normals[np.where(pFlatIndexMax> 0)[0]]
+
+    pFlatIndexMin = np.array(points[:,0]-k*normals[:,0]).astype(int)*sy*sz+np.array(points[:,1]-k*normals[:,1]).astype(int)*sz + np.array(points[:,1]-k*normals[:,2]).astype(int)
+    points = points[np.where(pFlatIndexMin< len(binary_))[0]]
+    normals = normals[np.where(pFlatIndexMin< len(binary_))[0]]
+
+    pFlatIndexMin = np.array(points[:,0]-k*normals[:,0]).astype(int)*sy*sz+np.array(points[:,1]-k*normals[:,1]).astype(int)*sz + np.array(points[:,1]-k*normals[:,2]).astype(int)
+    points = points[np.where(pFlatIndexMin> 0)[0]]
+    normals = normals[np.where(pFlatIndexMin> 0)[0]]
+
+    leftSum = np.zeros(normals.shape[0])
+    rightSum = np.zeros(normals.shape[0])
+    normalDirection = np.zeros(normals.shape[0])
+    for n in range(1,k+1):
+        leftSum  += binary_[np.array(points[:,0]+n*normals[:,0]).astype(int)*sy*sz+np.array(points[:,1]+n*normals[:,1]).astype(int)*sz + np.array(points[:,1]+n*normals[:,2]).astype(int) ]
+        rightSum += binary_[np.array(points[:,0]-n*normals[:,0]).astype(int)*sy*sz+np.array(points[:,1]-n*normals[:,1]).astype(int)*sz + np.array(points[:,1]-n*normals[:,2]).astype(int)]
+        
+    
+    normalDirection[leftSum>=rightSum]=-1
+    normalDirection[leftSum<rightSum] = 1
+
+    normals = normals* np.expand_dims(normalDirection, axis=-1)
+
+    return points, normals
+
 
 def estimate2Dnormals(points,binarySection=None , radius = 3,pkdtree = None,  progressbar= False):
     """
@@ -833,9 +906,9 @@ def areaKeyFrame2DLaplacian(fixedImage, movingImage ,spacing, fthresh, mthresh, 
     return A2@A1 , deformationField, transformedData
 
 
-def estimate3Dnormals(points,pkdtree,radius = 3, method =None):
+def estimate3Dnormals(points,pkdtree,binary, radius = 3, method ="Center"):
     """
-    method: "custom", "open3d"
+    method: "custom", "open3d", "Center", "Threshold"
     """
     if method == "open3d":
         pass
@@ -853,7 +926,10 @@ def estimate3Dnormals(points,pkdtree,radius = 3, method =None):
                     points[i,:] = [0,0,0]
             else:
                 points[i,:] = [0,0,0]
-        points, normals = orient_normals(points, normals)
+        if method=="Center":
+            points, normals = orient_normals_basic(points, normals)
+        else:
+            points, normals = orient_normals(points, normals, binary)
         return points, normals
 
 
@@ -1081,12 +1157,12 @@ class RegistrationData(object):
         self.set_fpoints(fpoints)  
 
     def estimate_fnormals(self):
-        points, normals  = estimate3Dnormals(self.fpoints, self.fkdtree)
+        points, normals  = estimate3Dnormals(self.fpoints, self.fkdtree, self.fbinary)
         self.set_fnormals(normals)
         self.set_fpoints(points)
 
     def estimate_mnormals(self):
-        points, normals  = estimate3Dnormals(self.mpoints, self.mkdtree)
+        points, normals  = estimate3Dnormals(self.mpoints, self.mkdtree, self.mbinary)
         self.set_mnormals(normals)
         self.set_mpoints(points)
 
