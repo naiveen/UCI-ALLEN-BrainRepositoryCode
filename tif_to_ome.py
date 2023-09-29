@@ -1,6 +1,9 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """
+Atchuth Naveen
+Code developed at UC Irvine.
+
 command line executable to convert a directory of tif images
 to zarr format that can be visualized on neuroglancer
 
@@ -129,8 +132,8 @@ def main():
         z =5
         w=500
         h = 500
-        write_image(dask_arr, group = zarr_grp,axes="zxy",storage_options=dict(chunks=(z, w, h)))
-        #write_image(dask_arr, group = zarr_grp,axes="zyx",storage_options=dict(chunks=(z, w, h), compressor=compressor))
+        #write_image(dask_arr, group = zarr_grp,axes="zxy",storage_options=dict(chunks=(z, w, h)))
+        write_image(dask_arr, group = zarr_grp,axes="zyx",storage_options=dict(chunks=(z, w, h), compressor=compressor))
 
         print("OME Done")
         return 0

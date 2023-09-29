@@ -1,3 +1,11 @@
+"""
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+Atchuth Naveen
+Code developed at UC Irvine.
+
+Utility file to create NII image volumes, perform registration, cell counting, cell region detection. 
+"""
 import scipy.io
 import numpy as np
 import subprocess
@@ -13,6 +21,16 @@ from cellAnalysis.cell_counting import *
 from cellAnalysis.cell_detection import *
 from reconstruction import *
 import registration as rg
+import shutil
+from tqdm import tqdm
+import time
+import matplotlib.pyplot as plt
+from scipy.ndimage import affine_transform, geometric_transform
+from registration.reconstruction import create_nifti_image
+from registration.reg_utils import loadNiiImages
+import registration as rg
+
+
 
 def get_input_cell_locations(input_mat):
     mat = scipy.io.loadmat(input_mat)
@@ -107,13 +125,94 @@ def countCellsInRegions(outputIndices, annDataImage):
     print("Exterior Points :{}".format(exterior_points))
     return cell_counts, np.asarray(points)
 
-        
+def loadTransformMapping(fshape, mshape,regDir):
+    """
+    Returns the mapping of shape fshapex3. 
+    For each voxel located at x,y,z in fdata, the 1x3 cell represents the x_,y_,z_ in mdata. 
+    """
+    
+    mx, my, mz = mshape
+    fx, fy, fz = fshape
+    
+    #Sample volumes that represent the coordinate of the voxel
+    X, Y,Z= np.meshgrid(range(mx), range(my), range(mz), indexing = 'ij')
+    X =X.astype(float)
+    Y =Y.astype(float)
+    Z= Z.astype(float)
+    
+    
+    A = np.load(os.path.join(regDir,"axisAlignA.npy"))
+    alignedX = affine_transform(X,np.linalg.inv(A), output_shape = X.shape, order =1)
+    alignedY = affine_transform(Y,np.linalg.inv(A), output_shape = Y.shape, order =1)
+    alignedZ = affine_transform(Z,np.linalg.inv(A), output_shape = Z.shape, order =1)
+    alignedXPath = os.path.join(regDir, "alignX.nii.gz")
+    alignedYPath = os.path.join(regDir, "alignY.nii.gz")
+    alignedZPath = os.path.join(regDir, "alignZ.nii.gz")
+    
+    create_nifti_image(alignedX, 2.5, alignedXPath, 1)
+    create_nifti_image(alignedY, 2.5, alignedYPath, 1)
+    create_nifti_image(alignedZ, 2.5, alignedZPath, 1)
+
+    elastixX =  rg.elastixTransformation(alignedXPath, regDir, os.path.join(regDir, "elastixX"))
+    elastixY =  rg.elastixTransformation(alignedYPath, regDir, os.path.join(regDir, "elastixY"))
+    elastixZ =  rg.elastixTransformation(alignedZPath, regDir, os.path.join(regDir, "elastixZ"))
+
+    deformationField = np.load(os.path.join(regDir,"deformation3d.npy"))
+    finalX   = rg.applyDeformationField(elastixX , deformationField)
+    finalY   = rg.applyDeformationField(elastixY , deformationField)
+    finalZ   = rg.applyDeformationField(elastixZ , deformationField)
+    
+    mapping = np.zeros((fx,fy,fz,3))
+    mapping[:,:,:, 0] = finalX
+
+    mapping[:,:,:, 1] = finalY
+
+    mapping[:,:,:, 2] = finalZ
+    mapping[mapping<0] = 0
+    
+    #Remove all junk files
+    os.remove(os.path.join(regDir, "alignX.nii.gz"))
+    os.remove(os.path.join(regDir, "alignY.nii.gz"))
+    os.remove(os.path.join(regDir, "alignZ.nii.gz"))
+    shutil.rmtree(os.path.join(regDir, "elastixX"))
+    shutil.rmtree(os.path.join(regDir, "elastixY"))
+    shutil.rmtree(os.path.join(regDir, "elastixZ"))
+    
+    return mapping      
+
+def getMappedIndices(points, mapping):
+    """
+    To be used in conjunction with loadTransformMapping
+
+    point - px3 np array p is the number of points
+
+    mapping- nxwxhx3 np array
+    
+    """
+    mint = mapping.astype(int)
+    mappedIndices =[]
+    for point in tqdm(points):
+        try:
+            x,y,z = point
+            x_,y_,z_ = np.where(np.bitwise_and(np.bitwise_and(mint[:,:,:,0]==x, mint[:,:,:,1]==y), mint[:,:,:,2]==z))
+            if(len(x_) ==0 ):
+                mappedIndices.append([0,0,0])
+                #mnorm  = np.linalg.norm(mapping - np.reshape(point, (1,1,1,3)), axis=3)
+                #x_,y_,z_ = np.where(mnorm == np.min(mnorm))
+            else:
+                mappedIndices.append([x_[0],y_[0],z_[0]])
+            #region_ids.append(stats.mode(anndata[indices[0], indices[1], indices[2]], keepdims=False).mode)
+        except Exception as e:
+            print("Exception at Mapping Indices for point {}".format(point))
+    return mappedIndices
+
 def registration(fixedImagePath, movingImagePath, outputDir):
     """
     Wrapper around different steps involved in Registration. 
     """
     print("Aligning Axes")
     A, axisAlignedData = rg.axisAlignData(fixedImagePath, movingImagePath)
+    np.save(os.path.join(outputDir,"axisAlignA.npy"), A)
     axisAlignedDataPath  = os.path.join(outputDir , "axisAlignedData.nii.gz")
     create_nifti_image(axisAlignedData, 2.5, axisAlignedDataPath, 1)
     movingImagePath = axisAlignedDataPath
@@ -170,9 +269,9 @@ if __name__ == '__main__':
     parser.add_argument('--t2d', action='store_true',  help ="When template being registered to imaged brain volume and the resulting registration used for cell counting.") 
 
     args = parser.parse_args()
-    elastix_dir = "../elastix/"
-    template_dir = "CCF_DATA/"
-    annotationImagePath = r"./CCF_DATA/annotation_25m.nii"
+    elastix_dir = "./elastix/"
+    template_dir = "./CCF_DATA/"
+    annotationImagePath = r"./CCF_DATA/annotation_25.nii.gz"
     ATLAS_PATH = r"./CCF_DATA/1_adult_mouse_brain_graph_mapping.csv"
 
     img_dir  = args.img_dir
@@ -188,14 +287,20 @@ if __name__ == '__main__':
     else:
         nii_dir  = os.path.join(img_dir, "nii")
         moving_image = os.path.join(nii_dir,"brain_25.nii.gz")
-        fixed_image = os.path.join(template_dir, "average_template_25m.nii")
+        fixed_image = os.path.join(template_dir, "average_template_25.nii.gz")
 
     if args.output_dir=="":
         output_dir = os.path.join(img_dir, "reg")
 
-    if not img_dir == "":
+
+    start = time.time()
+
+    if not os.path.isdir(nii_dir):
         print("Creating Nii Images.")
         createNiiImages(img_dir, nii_dir, channel)
+        print("Nii images created in {}".format(time.time()- start))
+    else:
+        print("Skipping Nii Image creation. Nii directory already present.")
 
     input_points_file = os.path.join(output_dir, "inputpoints.txt")
     output_points_file = os.path.join(output_dir, "output_points.txt")
@@ -210,12 +315,19 @@ if __name__ == '__main__':
     mImage = nib.load(moving_image)
     mData = mImage.get_fdata()
 
+    fImage = nib.load(fixed_image)
+    fData = fImage.get_fdata()
+
     if not os.path.isdir(output_dir):
         os.mkdir(output_dir)
         if args.t2d:
             subprocess.run(registration_cmd)
         else:
             registration(fixed_image, moving_image, output_dir)
+
+        print("Registrattion Done in {}".format(time.time()- start))
+    else:
+        print("Skipping Registration. registration directory already present.")
 
     if args.cell_detection:
 
@@ -227,12 +339,8 @@ if __name__ == '__main__':
                 cell_locations[:,1] = mData.shape[1] - cell_locations[:,1]-1
                 cell_locations[:,2] = mData.shape[2] - cell_locations[:,2]-1
             else:
-                imgFileList = natsorted(glob.glob(img_dir+"/**/*1_{}.tif".format(channel), recursive=True))
-                if args.t2d:
-                    imgfiles = imgFileList
-                else:
-                    imgfiles = resampleRegisteredSection(imgFileList, output_dir)
-
+                imgfiles = natsorted(glob.glob(img_dir+"/**/*1_{}.tif".format(channel), recursive=True))
+                
                 cells = Parallel(n_jobs=-4, verbose=13)(delayed(get_cell_locations)(img_file, index =i, intensity_threshold=threshold) for i, img_file in enumerate(imgfiles))
                 cell_locations = np.vstack(cells)
                 cell_locations[:,0] = mData.shape[0] - cell_locations[:,0]-1
@@ -241,7 +349,10 @@ if __name__ == '__main__':
             createShardedPointAnnotation(points,img_dir)
             scaledCellLocations = np.round(cell_locations*[ 1, 1/20,1/20]).astype(int)
             np.savetxt(input_points_file, scaledCellLocations , "%d %d %d", header = "index\n"+str(cell_locations.shape[0]), comments ="")
-
+            print("Cell Detection done in {}".format(time.time()- start))
+        else:
+            scaledCellLocations = np.loadtxt(input_points_file, skiprows=2)
+            print("Skipping Cell Detection. Cell Location file  already present.")
 
         """
         #Two methods for finding the region where the cell is located. Both of these methods give same results
@@ -252,18 +363,25 @@ if __name__ == '__main__':
 
         # The below transformatio needed only in case of registering template to data
         if args.t2d:
-            subprocess.run(transformix_cmd)
+            subprocess.run(transformix_cmd)   #transforms points to annotation image space
             scaledCellLocations = parsePhysicalPointsFromOutputFile(os.path.join(output_dir,"outputpoints.txt"))
             outputIndices    = convertPhysicalPointsToIndex(scaledCellLocations , annotationImage)
+            """
+            #Method 2: Transform the annotation map to the brain image space
+            outputIndices = np.loadtxt(input_points_file , skiprows=2)
+            replaceBSplineOrder(os.path.join(output_dir,"TransformParameters.1.txt"))
+            subprocess.run(transformix_cmd2)
+            annotationImage  = sitk.ReadImage(os.path.join(output_dir,"result.nii"))
+            """
+        else:
+            #mapping = loadTransformMapping(fData.shape, mData.shape, output_dir)
+            #np.save("mapping.npy", mapping)
+            mapping=np.load("mapping.npy")
+            outputIndices = getMappedIndices(scaledCellLocations, mapping)
+
+        print("Cell Location Transformation done in {}".format(time.time()- start))
 
         #np.savetxt(output_points_file, scaledCellLocations , "%d %d %d", header = "index\n"+str(scaledCellLocations.shape[0]), comments ="")
-        """
-        #Method 2: Transform the annotation map to the brain image space
-        outputIndices = np.loadtxt(input_points_file , skiprows=2)
-        replaceBSplineOrder(os.path.join(output_dir,"TransformParameters.1.txt"))
-        subprocess.run(transformix_cmd2)
-        annotationImage  = sitk.ReadImage(os.path.join(output_dir,"result.nii"))
-        """
         cellRegionCounts, pointIndices = countCellsInRegions( outputIndices, annotationImage)
         pd.DataFrame(dict(cellRegionCounts).items(), columns=["region", "count"]).to_csv(cell_count_file, index=False)
         atlas_df = pd.read_csv(ATLAS_PATH, index_col=None)

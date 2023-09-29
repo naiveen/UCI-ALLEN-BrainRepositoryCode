@@ -1,3 +1,13 @@
+"""
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+Atchuth Naveen
+Code developed at UC Irvine.
+
+
+Contains registration pipeline for performing non linear laplacian registration in 3D space.
+"""
+
 import numpy as np
 import cv2
 import matplotlib.pyplot as plt
