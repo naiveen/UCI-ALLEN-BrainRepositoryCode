@@ -134,10 +134,10 @@ def axisAlignData(fixedImage, movingImage):
 """
 
 def create_nifti_image(img_array, scale, name=None, sz= None):
-    """
-    img_array : numpy array, containing stack of images
-    scale: nifti scale
-    """
+    
+    #img_array : numpy array, containing stack of images
+    #scale: nifti scale
+    
     affine_transform = np.zeros((4,4))
 
     affine_transform[0,2] = 0.01 * scale
