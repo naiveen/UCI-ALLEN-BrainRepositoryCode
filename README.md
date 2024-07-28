@@ -1,9 +1,21 @@
 # Code for UCI ALLEN Brain Repository
 
+## Setup
+
+Install python requirements. 
+```
+pip install -r requirements.txt
+
+pip install -e registration
+```
+
+Registration currently requires Elastix to be placed in the folder in which the script will be run. Too set up elastix
+```
+python setup_elastix.py
+```
+
 
 ## Registration and Cell Counting
-
-* Registration currently requires Elastix to be placed in the folder in which the script will be run. Elastix binaries can be downloaded at https://github.com/SuperElastix/elastix/releases/tag/5.1.0
 
 * This script can generate nii files and perform registration as well as use existing nii files for registration. 
     
